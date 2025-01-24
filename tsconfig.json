@@ -34,7 +34,6 @@
       "store/*": ["./store/*"],
       "styles/*": ["./styles/*"]
     },
-    
     "plugins": [
       {
         "name": "next"
