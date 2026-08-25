@@ -1,14 +1,15 @@
-name: Create docker images
+name: Create docker images (cloud)
 
 on:
   push:
     branches:
       - analytics
+      - cloud
 
 jobs:
   build:
     name: Build, push, and deploy
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - uses: actions/checkout@v3

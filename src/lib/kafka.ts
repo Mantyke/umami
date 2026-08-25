@@ -1,24 +1,56 @@
+import type * as tls from 'node:tls';
 import debug from 'debug';
-import { Kafka, Mechanism, Producer, RecordMetadata, SASLOptions, logLevel } from 'kafkajs';
-import { KAFKA, KAFKA_PRODUCER } from 'lib/db';
-import * as tls from 'tls';
+import { Kafka, logLevel, type Producer, type RecordMetadata, type SASLOptions } from 'kafkajs';
+import { serializeError } from 'serialize-error';
+import { KAFKA, KAFKA_PRODUCER } from '@/lib/db';
 
 const log = debug('umami:kafka');
+const CONNECT_TIMEOUT = 5000;
+const SEND_TIMEOUT = 3000;
+const ACKS = 1;
+const DEFAULT_MAX_MESSAGE_BYTES = 900_000;
 
 let kafka: Kafka;
 let producer: Producer;
 const enabled = Boolean(process.env.KAFKA_URL && process.env.KAFKA_BROKER);
 
+type KafkaMessage = Record<string, unknown>;
+type KafkaProducerMessage = { value: string };
+
+function getMaxMessageBytes() {
+  const size = Number(process.env.KAFKA_MAX_MESSAGE_BYTES);
+
+  return Number.isFinite(size) && size > 0 ? size : DEFAULT_MAX_MESSAGE_BYTES;
+}
+
+function getMessageSize(value: string) {
+  return Buffer.byteLength(value, 'utf8');
+}
+
+function getMessages(message: KafkaMessage | KafkaMessage[]) {
+  const items = Array.isArray(message) ? message : [message];
+
+  return items.map(item => {
+    const value = JSON.stringify(item);
+
+    return { value, size: getMessageSize(value) };
+  });
+}
+
 function getClient() {
   const { username, password } = new URL(process.env.KAFKA_URL);
   const brokers = process.env.KAFKA_BROKER.split(',');
+  const mechanism =
+    (process.env.KAFKA_SASL_MECHANISM as 'plain' | 'scram-sha-256' | 'scram-sha-512') || 'plain';
 
-  const ssl: { ssl?: tls.ConnectionOptions | boolean; sasl?: SASLOptions | Mechanism } =
+  const ssl: { ssl?: tls.ConnectionOptions | boolean; sasl?: SASLOptions } =
     username && password
       ? {
-          ssl: true,
+          ssl: {
+            rejectUnauthorized: process.env.KAFKA_SSL_ALLOW_UNAUTHORIZED !== 'true',
+          },
           sasl: {
-            mechanism: 'scram-sha-256',
+            mechanism,
             username,
             password,
           },
@@ -28,13 +60,13 @@ function getClient() {
   const client: Kafka = new Kafka({
     clientId: 'umami',
     brokers: brokers,
-    connectionTimeout: 3000,
+    connectionTimeout: CONNECT_TIMEOUT,
     logLevel: logLevel.ERROR,
     ...ssl,
   });
 
   if (process.env.NODE_ENV !== 'production') {
-    global[KAFKA] = client;
+    globalThis[KAFKA] = client;
   }
 
   log('Kafka initialized');
@@ -47,7 +79,7 @@ async function getProducer(): Promise<Producer> {
   await producer.connect();
 
   if (process.env.NODE_ENV !== 'production') {
-    global[KAFKA_PRODUCER] = producer;
+    globalThis[KAFKA_PRODUCER] = producer;
   }
 
   log('Kafka producer initialized');
@@ -57,39 +89,66 @@ async function getProducer(): Promise<Producer> {
 
 async function sendMessage(
   topic: string,
-  message: { [key: string]: string | number },
+  message: KafkaMessage | KafkaMessage[],
 ): Promise<RecordMetadata[]> {
-  await connect();
+  try {
+    await connect();
 
-  return producer.send({
-    topic,
-    messages: [
-      {
-        value: JSON.stringify(message),
-      },
-    ],
-    acks: -1,
-  });
-}
+    const maxMessageBytes = getMaxMessageBytes();
+    const messages = getMessages(message);
+    const result: RecordMetadata[] = [];
+    let batch: KafkaProducerMessage[] = [];
+    let batchSize = 0;
 
-async function sendMessages(topic: string, messages: { [key: string]: string | number }[]) {
-  await connect();
+    for (const { value, size } of messages) {
+      if (size > maxMessageBytes) {
+        log('Kafka message dropped: topic=%s size=%d max=%d', topic, size, maxMessageBytes);
+        continue;
+      }
 
-  await producer.send({
-    topic,
-    messages: messages.map(a => {
-      return { value: JSON.stringify(a) };
-    }),
-    acks: 1,
-  });
+      if (batch.length && batchSize + size > maxMessageBytes) {
+        result.push(
+          ...(await producer.send({
+            topic,
+            messages: batch,
+            timeout: SEND_TIMEOUT,
+            acks: ACKS,
+          })),
+        );
+        batch = [];
+        batchSize = 0;
+      }
+
+      batch.push({ value });
+      batchSize += size;
+    }
+
+    if (batch.length) {
+      result.push(
+        ...(await producer.send({
+          topic,
+          messages: batch,
+          timeout: SEND_TIMEOUT,
+          acks: ACKS,
+        })),
+      );
+    }
+
+    return result;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log('KAFKA ERROR:', serializeError(e));
+
+    return [];
+  }
 }
 
 async function connect(): Promise<Kafka> {
   if (!kafka) {
-    kafka = process.env.KAFKA_URL && process.env.KAFKA_BROKER && (global[KAFKA] || getClient());
+    kafka = process.env.KAFKA_URL && process.env.KAFKA_BROKER && (globalThis[KAFKA] || getClient());
 
     if (kafka) {
-      producer = global[KAFKA_PRODUCER] || (await getProducer());
+      producer = globalThis[KAFKA_PRODUCER] || (await getProducer());
     }
   }
 
@@ -103,5 +162,4 @@ export default {
   log,
   connect,
   sendMessage,
-  sendMessages,
 };

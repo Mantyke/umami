@@ -4,20 +4,28 @@
 node_modules
 .pnp
 .pnp.js
+.pnpm-store
+package-lock.json
 
 # testing
 /coverage
+/playwright-report
+/test-results
 
 # next.js
-/.next/
-/out/
-/prisma/
+next-env.d.ts
+/.next
+/out
 
 # production
 /build
 /public/script.js
+/public/recorder.js
 /geo
 /dist
+/generated
+/src/generated
+pm2.yml
 
 # misc
 .DS_Store
@@ -27,6 +35,11 @@ node_modules
 *.log
 .vscode
 .tool-versions
+.claude
+.agents
+tmpclaude*
+CLAUDE.md
+nul
 
 # debug
 npm-debug.log*
@@ -39,4 +52,3 @@ yarn-error.log*
 *.env.*
 
 *.dev.yml
-

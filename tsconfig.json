@@ -1,9 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2021",
-    "outDir": "./build",
+    "target": "es2022",
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "lib": ["dom", "dom.iterable", "esnext"],
@@ -19,20 +18,11 @@
     "strict": true,
     "strictNullChecks": false,
     "noEmit": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": false,
-    "baseUrl": "./src",
-    "types": ["jest"],
-    "typeRoots": ["node_modules/@types"],
+    "outDir": "./build",
     "paths": {
-      "react": ["./node_modules/@types/react"],
-      "assets/*": ["./assets/*"],
-      "components/*": ["./components/*"],
-      "lib/*": ["./lib/*"],
-      "pages/*": ["./pages/*"],
-      "queries/*": ["./queries/*"],
-      "store/*": ["./store/*"],
-      "styles/*": ["./styles/*"]
+      "@/*": ["./src/*"]
     },
     "plugins": [
       {
@@ -40,6 +30,14 @@
       }
     ]
   },
-  "include": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "next-env.d.ts", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "./cypress.config.ts", "cypress"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx",
+    "next-env.d.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", "./playwright.config.ts", "tests/e2e"]
 }

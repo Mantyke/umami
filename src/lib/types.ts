@@ -1,56 +1,16 @@
-import { NextApiRequest } from 'next';
-import {
-  COLLECTION_TYPE,
-  DATA_TYPE,
-  EVENT_TYPE,
-  KAFKA_TOPIC,
-  PERMISSIONS,
-  REPORT_TYPES,
-  ROLES,
-} from './constants';
-import * as yup from 'yup';
-import { TIME_UNIT } from './date';
-import { Dispatch, SetStateAction } from 'react';
+import type { UseQueryOptions } from '@tanstack/react-query';
+import type { Board as PrismaBoard } from '@/generated/prisma/client';
+import type { DATA_TYPE, OPERATORS, ROLES } from './constants';
+import type { TIME_UNIT } from './date';
 
-type ObjectValues<T> = T[keyof T];
+export type ObjectValues<T> = T[keyof T];
+
+export type ReactQueryOptions<T = any> = Omit<UseQueryOptions<T, Error, T>, 'queryKey' | 'queryFn'>;
 
 export type TimeUnit = ObjectValues<typeof TIME_UNIT>;
-export type Permission = ObjectValues<typeof PERMISSIONS>;
-
-export type CollectionType = ObjectValues<typeof COLLECTION_TYPE>;
 export type Role = ObjectValues<typeof ROLES>;
-export type EventType = ObjectValues<typeof EVENT_TYPE>;
 export type DynamicDataType = ObjectValues<typeof DATA_TYPE>;
-export type KafkaTopic = ObjectValues<typeof KAFKA_TOPIC>;
-export type ReportType = ObjectValues<typeof REPORT_TYPES>;
-
-export interface PageParams {
-  query?: string;
-  page?: number;
-  pageSize?: number;
-  orderBy?: string;
-  sortDescending?: boolean;
-}
-
-export interface PageResult<T> {
-  data: T;
-  count: number;
-  page: number;
-  pageSize: number;
-  orderBy?: string;
-  sortDescending?: boolean;
-}
-
-export interface PagedQueryResult<T> {
-  result: PageResult<T>;
-  query: any;
-  params: PageParams;
-  setParams: Dispatch<SetStateAction<T | PageParams>>;
-}
-
-export interface DynamicData {
-  [key: string]: number | string | number[] | string[];
-}
+export type Operator = (typeof OPERATORS)[keyof typeof OPERATORS];
 
 export interface Auth {
   user?: {
@@ -59,113 +19,128 @@ export interface Auth {
     role: string;
     isAdmin: boolean;
   };
-  grant?: Permission[];
   shareToken?: {
-    websiteId: string;
+    shareType?: number;
+    websiteId?: string;
+    websiteIds?: string[];
+    boardId?: string;
+    pixelId?: string;
+    pixelIds?: string[];
+    linkId?: string;
+    linkIds?: string[];
+    parameters?: ShareParameters;
   };
 }
 
-export interface YupRequest {
-  GET?: yup.ObjectSchema<any>;
-  POST?: yup.ObjectSchema<any>;
-  PUT?: yup.ObjectSchema<any>;
-  DELETE?: yup.ObjectSchema<any>;
+export type ShareTheme = 'light' | 'dark';
+
+export interface ShareParameters {
+  allowFilter?: boolean;
+  theme?: ShareTheme;
+  [key: string]: boolean | ShareTheme | undefined;
 }
 
-export interface NextApiRequestQueryBody<TQuery = any, TBody = any> extends NextApiRequest {
-  auth?: Auth;
-  query: TQuery & { [key: string]: string | string[] };
-  body: TBody;
-  headers: any;
-  yup: YupRequest;
-}
-
-export interface NextApiRequestAuth extends NextApiRequest {
-  auth?: Auth;
-  headers: any;
-}
-
-export interface User {
-  id: string;
-  username: string;
-  password?: string;
-  role: string;
-  createdAt?: Date;
-}
-
-export interface Website {
-  id: string;
-  userId: string;
-  resetAt: Date;
-  name: string;
-  domain: string;
-  shareId: string;
-  createdAt: Date;
-}
-
-export interface Share {
-  id: string;
-  token: string;
-}
-
-export interface WebsiteActive {
-  x: number;
-}
-
-export interface WebsiteMetric {
-  x: string;
-  y: number;
-}
-
-export interface WebsiteEventMetric {
-  x: string;
-  t: string;
-  y: number;
-}
-
-export interface WebsiteEventData {
-  eventName?: string;
+export interface PropertyFilter {
   propertyName: string;
   dataType: number;
-  propertyValue?: string;
-  total: number;
+  operator: Operator;
+  value: string;
 }
 
-export interface WebsitePageviews {
-  pageviews: {
-    t: string;
-    y: number;
-  };
-  sessions: {
-    t: string;
-    y: number;
-  };
-}
+export type EventPropertyFilter = PropertyFilter;
+export type SessionPropertyFilter = PropertyFilter;
 
-export interface WebsiteStats {
-  pageviews: { value: number; prev: number };
-  visitors: { value: number; prev: number };
-  visits: { value: number; prev: number };
-  bounces: { value: number; prev: number };
-  totalTime: { value: number; prev: number };
+export interface Filter {
+  name: string;
+  operator: Operator;
+  value: string | string[];
+  type?: string;
+  column?: string;
+  prefix?: string;
+  paramName?: string;
 }
 
 export interface DateRange {
-  value: string;
   startDate: Date;
   endDate: Date;
+  value?: string;
   unit?: TimeUnit;
   num?: number;
   offset?: number;
 }
 
-export interface QueryFilters {
+export interface DynamicData {
+  [key: string]: number | string | number[] | string[];
+}
+
+export interface EventDataSeriesPoint {
+  x: string;
+  t: string;
+  y: number;
+}
+
+export interface EventDataDateSeriesPoint {
+  t: string;
+  y: number;
+}
+
+export interface EventDataNumericStats {
+  total: number;
+  average: number;
+  median: number;
+  max: number;
+  min: number;
+}
+
+export interface SessionDataPivotRow {
+  sessionId: string;
+  distinctId: string;
+  createdAt: string | Date;
+  propertyKeys: string[];
+  propertyValues: string[];
+}
+
+export interface PropertyLeaderboardRow {
+  label: string;
+  activity: number;
+  sessions: number;
+  visits: number;
+  views: number;
+  events: number;
+}
+
+export interface QueryOptions {
+  joinSession?: boolean;
+  columns?: Record<string, string>;
+  limit?: number;
+  prefix?: string;
+  isCohort?: boolean;
+  cohortMatch?: string;
+  cohortActionName?: string;
+}
+
+export interface QueryFilters
+  extends DateParams,
+    FilterParams,
+    SortParams,
+    PageParams,
+    SegmentParams {
+  minDuration?: number;
+  cohortFilters?: QueryFilters;
+  eventPropertyFilters?: EventPropertyFilter[];
+  sessionPropertyFilters?: SessionPropertyFilter[];
+}
+
+export interface DateParams {
   startDate?: Date;
   endDate?: Date;
-  timezone?: string;
   unit?: string;
-  eventType?: number;
-  url?: string;
+  timezone?: string;
+  compareDate?: Date;
+}
+
+export interface FilterParams {
+  path?: string;
   referrer?: string;
   title?: string;
   query?: string;
@@ -180,19 +155,46 @@ export interface QueryFilters {
   event?: string;
   search?: string;
   tag?: string;
+  eventType?: number;
+  segment?: string;
+  cohort?: string;
+  compare?: string;
+  excludeBounce?: boolean;
+  match?: 'all' | 'any';
 }
 
-export interface QueryOptions {
-  joinSession?: boolean;
-  columns?: { [key: string]: string };
-  limit?: number;
+export interface SortParams {
+  orderBy?: string;
+  sortDescending?: boolean;
+}
+
+export interface PageParams {
+  page?: number;
+  pageSize?: number;
+  maxResults?: number;
+}
+
+export interface SegmentParams {
+  segment?: string;
+  cohort?: string;
+}
+
+export interface PageResult<T> {
+  data: T;
+  count: number;
+  page: number;
+  pageSize: number;
+  orderBy?: string;
+  sortDescending?: boolean;
+  search?: string;
+  isCapped?: boolean;
 }
 
 export interface RealtimeData {
-  countries: { [key: string]: number };
+  countries: Record<string, number>;
   events: any[];
   pageviews: any[];
-  referrers: { [key: string]: number };
+  referrers: Record<string, number>;
   timestamp: number;
   series: {
     views: any[];
@@ -204,22 +206,50 @@ export interface RealtimeData {
     events: number;
     countries: number;
   };
-  urls: { [key: string]: number };
+  urls: Record<string, number>;
   visitors: any[];
 }
 
-export interface SessionData {
+export interface ApiError extends Error {
+  code?: string;
+  message: string;
+}
+
+export interface BoardComponentConfig {
+  type: string;
+  entityType?: 'website' | 'pixel' | 'link';
+  entityId?: string;
+  websiteId?: string;
+  title?: string;
+  description?: string;
+  props?: Record<string, any>;
+}
+
+export interface BoardColumn {
   id: string;
-  websiteId: string;
-  visitId: string;
-  hostname: string;
-  browser: string;
-  os: string;
-  device: string;
-  screen: string;
-  language: string;
-  country: string;
-  subdivision1: string;
-  subdivision2: string;
-  city: string;
+  component?: BoardComponentConfig;
+  size?: number;
+}
+
+export interface BoardRow {
+  id: string;
+  columns: BoardColumn[];
+  size?: number;
+}
+
+export interface BoardParameters {
+  websiteId?: string;
+  pixelId?: string;
+  linkId?: string;
+  rows?: BoardRow[];
+}
+
+export interface Board extends Omit<PrismaBoard, 'parameters'> {
+  parameters: BoardParameters;
+}
+
+export interface WhiteLabel {
+  displayName: string;
+  domainName: string;
+  logoUrl: string;
 }

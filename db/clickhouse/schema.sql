@@ -13,20 +13,38 @@ CREATE TABLE umami.website_event
     screen LowCardinality(String),
     language LowCardinality(String),
     country LowCardinality(String),
-    subdivision1 LowCardinality(String),
-    subdivision2 LowCardinality(String),
+    region LowCardinality(String),
     city String,
     --pageviews
     url_path String,
     url_query String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_content String,
+    utm_term String,
     referrer_path String,
     referrer_query String,
     referrer_domain String,
     page_title String,
+    --clickIDs
+    gclid String,
+    fbclid String,
+    msclkid String,
+    ttclid String,
+    li_fat_id String,
+    twclid String,
+    --performance
+    lcp Nullable(Decimal(10, 1)),
+    inp Nullable(Decimal(10, 1)),
+    cls Nullable(Decimal(10, 4)),
+    fcp Nullable(Decimal(10, 1)),
+    ttfb Nullable(Decimal(10, 1)),
     --events
     event_type UInt32,
     event_name String,
     tag String,
+    distinct_id String,
     created_at DateTime('UTC'),
     job_id Nullable(UUID)
 )
@@ -45,7 +63,7 @@ CREATE TABLE umami.event_data
     event_name String,
     data_key String,
     string_value Nullable(String),
-    number_value Nullable(Decimal64(4)),
+    number_value Nullable(Decimal(22, 4)),
     date_value Nullable(DateTime('UTC')),
     data_type UInt32,
     created_at DateTime('UTC'),
@@ -61,9 +79,10 @@ CREATE TABLE umami.session_data
     session_id UUID,
     data_key String,
     string_value Nullable(String),
-    number_value Nullable(Decimal64(4)),
+    number_value Nullable(Decimal(22, 4)),
     date_value Nullable(DateTime('UTC')),
     data_type UInt32,
+    distinct_id String,
     created_at DateTime('UTC'),
     job_id Nullable(UUID)
 )
@@ -71,33 +90,64 @@ ENGINE = ReplacingMergeTree
     ORDER BY (website_id, session_id, data_key)
     SETTINGS index_granularity = 8192;
 
+ALTER TABLE umami.session_data
+MODIFY SETTING deduplicate_merge_projection_mode = 'drop';
+
+ALTER TABLE umami.session_data
+ADD PROJECTION session_data_property_filter_projection (
+    SELECT *
+    ORDER BY (
+        website_id,
+        data_key,
+        data_type,
+        string_value,
+        number_value,
+        date_value,
+        session_id
+    )
+);
+
+ALTER TABLE umami.session_data MATERIALIZE PROJECTION session_data_property_filter_projection;
+
 -- stats hourly
 CREATE TABLE umami.website_event_stats_hourly
 (
     website_id UUID,
     session_id UUID,
     visit_id UUID,
-    hostname LowCardinality(String),
+    hostname SimpleAggregateFunction(groupArrayArray, Array(String)),
     browser LowCardinality(String),
     os LowCardinality(String),
     device LowCardinality(String),
     screen LowCardinality(String),
     language LowCardinality(String),
     country LowCardinality(String),
-    subdivision1 LowCardinality(String),
+    region LowCardinality(String),
     city String,
     entry_url AggregateFunction(argMin, String, DateTime('UTC')),
     exit_url AggregateFunction(argMax, String, DateTime('UTC')),
     url_path SimpleAggregateFunction(groupArrayArray, Array(String)),
     url_query SimpleAggregateFunction(groupArrayArray, Array(String)),
+    utm_source SimpleAggregateFunction(groupArrayArray, Array(String)),
+    utm_medium SimpleAggregateFunction(groupArrayArray, Array(String)),
+    utm_campaign SimpleAggregateFunction(groupArrayArray, Array(String)),
+    utm_content SimpleAggregateFunction(groupArrayArray, Array(String)),
+    utm_term SimpleAggregateFunction(groupArrayArray, Array(String)),
     referrer_domain SimpleAggregateFunction(groupArrayArray, Array(String)),
     page_title SimpleAggregateFunction(groupArrayArray, Array(String)),
+    gclid SimpleAggregateFunction(groupArrayArray, Array(String)),
+    fbclid SimpleAggregateFunction(groupArrayArray, Array(String)),
+    msclkid SimpleAggregateFunction(groupArrayArray, Array(String)),
+    ttclid SimpleAggregateFunction(groupArrayArray, Array(String)),
+    li_fat_id SimpleAggregateFunction(groupArrayArray, Array(String)),
+    twclid SimpleAggregateFunction(groupArrayArray, Array(String)),
     event_type UInt32,
     event_name SimpleAggregateFunction(groupArrayArray, Array(String)),
     views SimpleAggregateFunction(sum, UInt64),
     min_time SimpleAggregateFunction(min, DateTime('UTC')),
     max_time SimpleAggregateFunction(max, DateTime('UTC')),
     tag SimpleAggregateFunction(groupArrayArray, Array(String)),
+    distinct_id String,
     created_at Datetime('UTC')
 )
 ENGINE = AggregatingMergeTree
@@ -118,53 +168,77 @@ SELECT
     website_id,
     session_id,
     visit_id,
-    hostname,
+    hostnames as hostname,
     browser,
     os,
     device,
     screen,
     language,
     country,
-    subdivision1,
+    region,
     city,
     entry_url,
     exit_url,
     url_paths as url_path,
     url_query,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_content,
+    utm_term,
     referrer_domain,
     page_title,
+    gclid,
+    fbclid,
+    msclkid,
+    ttclid,
+    li_fat_id,
+    twclid,
     event_type,
     event_name,
     views,
     min_time,
     max_time,
     tag,
+    distinct_id,
     timestamp as created_at
 FROM (SELECT
     website_id,
     session_id,
     visit_id,
-    hostname,
+    arrayFilter(x -> x != '', groupArray(hostname)) hostnames,
     browser,
     os,
     device,
     screen,
     language,
     country,
-    subdivision1,
+    region,
     city,
     argMinState(url_path, created_at) entry_url,
     argMaxState(url_path, created_at) exit_url,
     arrayFilter(x -> x != '', groupArray(url_path)) as url_paths,
     arrayFilter(x -> x != '', groupArray(url_query)) url_query,
-    arrayFilter(x -> x != '', groupArray(referrer_domain)) referrer_domain,
+    arrayFilter(x -> x != '', groupArray(utm_source)) utm_source,
+    arrayFilter(x -> x != '', groupArray(utm_medium)) utm_medium,
+    arrayFilter(x -> x != '', groupArray(utm_campaign)) utm_campaign,
+    arrayFilter(x -> x != '', groupArray(utm_content)) utm_content,
+    arrayFilter(x -> x != '', groupArray(utm_term)) utm_term,
+    arrayFilter(x -> x != '' and x != hostname, groupArray(referrer_domain)) referrer_domain,
     arrayFilter(x -> x != '', groupArray(page_title)) page_title,
+    arrayFilter(x -> x != '', groupArray(gclid)) gclid,
+    arrayFilter(x -> x != '', groupArray(fbclid)) fbclid,
+    arrayFilter(x -> x != '', groupArray(msclkid)) msclkid,
+    arrayFilter(x -> x != '', groupArray(ttclid)) ttclid,
+    arrayFilter(x -> x != '', groupArray(li_fat_id)) li_fat_id,
+    arrayFilter(x -> x != '', groupArray(twclid)) twclid,
     event_type,
     if(event_type = 2, groupArray(event_name), []) event_name,
-    sumIf(1, event_type = 1) views,
+    sumIf(1, event_type NOT IN (2, 5)) views,
     min(created_at) min_time,
     max(created_at) max_time,
     arrayFilter(x -> x != '', groupArray(tag)) tag,
+    distinct_id,
     toStartOfHour(created_at) timestamp
 FROM umami.website_event
 GROUP BY website_id,
@@ -177,9 +251,10 @@ GROUP BY website_id,
     screen,
     language,
     country,
-    subdivision1,
+    region,
     city,
     event_type,
+    distinct_id,
     timestamp);
 
 -- projections
@@ -196,3 +271,169 @@ SELECT * ORDER BY toStartOfDay(created_at), website_id, referrer_domain, created
 );
 
 ALTER TABLE umami.website_event MATERIALIZE PROJECTION website_event_referrer_domain_projection;
+
+-- revenue
+CREATE TABLE umami.website_revenue
+(
+    website_id UUID,
+    session_id UUID,
+    event_id UUID,
+    event_name String,
+    currency String,
+    revenue DECIMAL(18,4),
+    created_at DateTime('UTC')
+)
+ENGINE = MergeTree
+    PARTITION BY toYYYYMM(created_at)
+    ORDER BY (website_id, session_id, created_at)
+    SETTINGS index_granularity = 8192;
+
+
+CREATE MATERIALIZED VIEW umami.website_revenue_mv
+TO umami.website_revenue
+AS
+SELECT DISTINCT
+    ed.website_id,
+    ed.session_id,
+    ed.event_id,
+    ed.event_name,
+    c.currency,
+    coalesce(toDecimal64(ed.number_value, 2), toDecimal64(ed.string_value, 2)) revenue,
+    ed.created_at
+FROM umami.event_data ed
+JOIN (SELECT event_id, string_value as currency
+        FROM umami.event_data
+        WHERE positionCaseInsensitive(data_key, 'currency') > 0) c
+      ON c.event_id = ed.event_id
+WHERE positionCaseInsensitive(data_key, 'revenue') > 0;
+
+-- Create session_replay
+CREATE TABLE umami.session_replay
+(
+    replay_id UUID,
+    website_id UUID,
+    session_id UUID,
+    visit_id UUID,
+    chunk_index UInt32,
+    events String CODEC(ZSTD(3)),
+    event_count UInt32,
+    started_at DateTime64(6),
+    ended_at DateTime64(6),
+    created_at DateTime64(6) DEFAULT now64(6)
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (replay_id, website_id, session_id, visit_id, chunk_index)
+SETTINGS index_granularity = 8192;
+
+-- Create event_data_pivot
+CREATE TABLE IF NOT EXISTS umami.event_data_pivot
+(
+    website_id      UUID,
+    session_id      UUID,
+    event_id        UUID,
+    event_name      LowCardinality(String),
+    url_path        String,
+    created_at      DateTime('UTC'),
+    property_keys   AggregateFunction(groupArray, String),
+    property_values AggregateFunction(groupArray, String),
+    property_types  AggregateFunction(groupArray, UInt32)
+)
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (website_id, event_name, created_at, event_id)
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS umami.event_data_pivot_mv
+TO umami.event_data_pivot
+AS SELECT
+    website_id,
+    session_id,
+    event_id,
+    event_name,
+    url_path,
+    created_at,
+    groupArrayState(data_key) AS property_keys,
+    groupArrayState(multiIf(
+        data_type IN (1, 3, 5), ifNull(string_value, ''),
+        data_type = 2, toString(ifNull(number_value, 0)),
+        data_type = 4, toString(ifNull(date_value, toDateTime(0))),
+        ''
+    )) AS property_values,
+    groupArrayState(data_type) AS property_types
+FROM umami.event_data
+GROUP BY website_id, session_id, event_id, event_name, url_path, created_at;
+
+-- Create session_data_pivot
+CREATE TABLE IF NOT EXISTS umami.session_data_pivot
+(
+    website_id      UUID,
+    session_id      UUID,
+    distinct_id     String,
+    created_year_month UInt32,
+    created_at      AggregateFunction(max, DateTime('UTC')),
+    property_keys   AggregateFunction(groupArray, String),
+    property_values AggregateFunction(groupArray, String),
+    property_types  AggregateFunction(groupArray, UInt32)
+)
+ENGINE = AggregatingMergeTree()
+PARTITION BY created_year_month
+ORDER BY (website_id, session_id, distinct_id)
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS umami.session_data_pivot_mv
+TO umami.session_data_pivot
+AS SELECT
+    website_id,
+    session_id,
+    ifNull(distinct_id, '') AS distinct_id,
+    toYYYYMM(max(session_data.created_at)) AS created_year_month,
+    maxState(session_data.created_at) AS created_at,
+    groupArrayState(data_key) AS property_keys,
+    groupArrayState(multiIf(
+        data_type IN (1, 3, 5), ifNull(string_value, ''),
+        data_type = 2, toString(ifNull(number_value, 0)),
+        data_type = 4, toString(ifNull(date_value, toDateTime(0))),
+        ''
+    )) AS property_values,
+    groupArrayState(data_type) AS property_types
+FROM umami.session_data
+GROUP BY website_id, session_id, distinct_id;
+
+-- Create heatmap_event
+CREATE TABLE umami.heatmap_event
+(
+    heatmap_event_id UUID,
+    website_id UUID,
+    session_id UUID,
+    visit_id UUID,
+    url_path String,
+    event_type UInt8,
+    x Nullable(Int32),
+    y Nullable(Int32),
+    page_x Nullable(Int32),
+    page_y Nullable(Int32),
+    page_w Nullable(Int32),
+    viewport_w Nullable(Int32),
+    viewport_h Nullable(Int32),
+    page_h Nullable(Int32),
+    scroll_pct Nullable(UInt8),
+    created_at DateTime('UTC')
+)
+ENGINE = MergeTree
+    PARTITION BY toYYYYMM(created_at)
+    ORDER BY (website_id, url_path, event_type, created_at)
+    SETTINGS index_granularity = 8192;
+
+-- Create session_link
+CREATE TABLE umami.session_link
+(
+    website_id UUID,
+    session_id UUID,
+    distinct_id String,
+    created_at DateTime('UTC'),
+    INDEX idx_session_id session_id TYPE bloom_filter GRANULARITY 1
+)
+ENGINE = ReplacingMergeTree
+    ORDER BY (website_id, distinct_id, session_id)
+    SETTINGS index_granularity = 8192;

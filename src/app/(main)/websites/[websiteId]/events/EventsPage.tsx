@@ -1,44 +1,66 @@
 'use client';
-import WebsiteHeader from '../WebsiteHeader';
-import EventsDataTable from './EventsDataTable';
-import EventsMetricsBar from './EventsMetricsBar';
-import EventsChart from 'components/metrics/EventsChart';
-import { GridRow } from 'components/layout/Grid';
-import MetricsTable from 'components/metrics/MetricsTable';
-import { useMessages } from 'components/hooks';
-import { Item, Tabs } from 'react-basics';
-import { useState } from 'react';
-import EventProperties from './EventProperties';
+import { Column, Tab, TabList, TabPanel, Tabs } from '@umami/react-zen';
+import { type Key, useState } from 'react';
+import { SessionModal } from '@/app/(main)/websites/[websiteId]/sessions/SessionModal';
+import { WebsiteControls } from '@/app/(main)/websites/[websiteId]/WebsiteControls';
+import { Panel } from '@/components/common/Panel';
+import { useMessages } from '@/components/hooks';
+import { EventsChart } from '@/components/metrics/EventsChart';
+import { MetricsTable } from '@/components/metrics/MetricsTable';
+import { getItem, setItem } from '@/lib/storage';
+import { EventProperties } from './EventProperties';
+import { EventsDataTable } from './EventsDataTable';
+import { EventsMetricsBar } from './EventsMetricsBar';
 
-export default function EventsPage({ websiteId }) {
-  const [tab, setTab] = useState('activity');
-  const { formatMessage, labels } = useMessages();
+const KEY_NAME = 'umami.events.tab';
+
+export function EventsPage({ websiteId }) {
+  const [tab, setTab] = useState(getItem(KEY_NAME) || 'chart');
+  const { t, labels } = useMessages();
+
+  const handleSelect = (value: Key) => {
+    setItem(KEY_NAME, value);
+    setTab(value);
+  };
 
   return (
-    <>
-      <WebsiteHeader websiteId={websiteId} />
+    <Column gap="3">
+      <WebsiteControls websiteId={websiteId} />
       <EventsMetricsBar websiteId={websiteId} />
-      <GridRow columns="two-one">
-        <EventsChart websiteId={websiteId} />
-        <MetricsTable
-          websiteId={websiteId}
-          type="event"
-          title={formatMessage(labels.events)}
-          metric={formatMessage(labels.actions)}
-        />
-      </GridRow>
-      <div>
+      <Panel minWidth="0" width="100%" style={{ overflow: 'hidden' }}>
         <Tabs
           selectedKey={tab}
-          onSelect={(value: any) => setTab(value)}
-          style={{ marginBottom: 30 }}
+          onSelectionChange={key => handleSelect(key)}
+          style={{ minWidth: 0, width: '100%' }}
         >
-          <Item key="activity">{formatMessage(labels.activity)}</Item>
-          <Item key="properties">{formatMessage(labels.properties)}</Item>
+          <TabList>
+            <Tab id="chart">{t(labels.chart)}</Tab>
+            <Tab id="activity">{t(labels.activity)}</Tab>
+            <Tab id="properties">{t(labels.properties)}</Tab>
+          </TabList>
+          <TabPanel id="activity" style={{ minWidth: 0, width: '100%' }}>
+            <EventsDataTable websiteId={websiteId} />
+          </TabPanel>
+          <TabPanel id="chart" style={{ minWidth: 0, width: '100%' }}>
+            <Column gap="6">
+              <Column border="bottom" paddingBottom="6">
+                <EventsChart websiteId={websiteId} limit={50} />
+              </Column>
+              <MetricsTable
+                websiteId={websiteId}
+                type="event"
+                title={t(labels.event)}
+                metric={t(labels.count)}
+                limit={50}
+              />
+            </Column>
+          </TabPanel>
+          <TabPanel id="properties" style={{ minWidth: 0, width: '100%', overflow: 'hidden' }}>
+            <EventProperties websiteId={websiteId} />
+          </TabPanel>
         </Tabs>
-        {tab === 'activity' && <EventsDataTable websiteId={websiteId} />}
-        {tab === 'properties' && <EventProperties websiteId={websiteId} />}
-      </div>
-    </>
+      </Panel>
+      <SessionModal websiteId={websiteId} />
+    </Column>
   );
 }
